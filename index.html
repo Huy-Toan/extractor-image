@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doc Image Extractor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f4f0;--surface:#fff;--surface2:#f0ede8;
+  --border:#e2ddd8;--border-strong:#ccc8c2;
+  --text:#1a1916;--text-sec:#6b6760;--text-muted:#9e9b96;
+  --accent:#2563eb;--accent-bg:#eff6ff;--accent-border:#bfdbfe;
+  --danger:#dc2626;--danger-bg:#fef2f2;
+  --radius:10px;--mono:'SF Mono','Fira Code',monospace;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6}
+
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:16px 28px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
+.logo{width:30px;height:30px;background:var(--text);border-radius:7px;display:flex;align-items:center;justify-content:center}
+.logo svg{width:16px;height:16px;fill:none;stroke:white;stroke-width:2}
+header h1{font-size:15px;font-weight:600}
+header p{font-size:13px;color:var(--text-muted);margin-left:4px}
+
+main{max-width:860px;margin:0 auto;padding:36px 24px}
+
+/* drop zone — compact when files exist */
+.drop-area{
+  border:1.5px dashed var(--border-strong);border-radius:14px;
+  padding:40px 28px;text-align:center;cursor:pointer;
+  transition:border-color .2s,background .2s;position:relative;
+  background:var(--surface);
+}
+.drop-area.has-files{padding:20px 28px}
+.drop-area.drag{border-color:var(--accent);background:var(--accent-bg)}
+.drop-area input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.drop-icon{width:44px;height:44px;background:var(--surface2);border-radius:11px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
+.drop-icon svg{width:22px;height:22px;stroke:var(--text-sec);fill:none;stroke-width:1.5}
+.drop-area h2{font-size:16px;font-weight:600;margin-bottom:4px}
+.drop-area p{font-size:13px;color:var(--text-sec)}
+.drop-area.has-files h2{font-size:14px;margin:0}
+.drop-area.has-files p{display:none}
+.drop-area.has-files .drop-icon{width:32px;height:32px;margin:0 auto 8px}
+.drop-area.has-files .drop-icon svg{width:16px;height:16px}
+
+.badge{font-size:12px;font-weight:500;background:var(--surface2);color:var(--text-sec);border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-family:var(--mono)}
+.file-types{display:flex;gap:6px;justify-content:center;margin-top:12px;flex-wrap:wrap}
+.drop-area.has-files .file-types{display:none}
+
+/* file list */
+.file-list{margin-top:16px}
+.fl-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.fl-title{font-size:13px;font-weight:600;color:var(--text-sec)}
+.fl-clear{font-size:12px;color:var(--danger);background:none;border:none;cursor:pointer;padding:0}
+.fl-clear:hover{text-decoration:underline}
+
+.file-item{
+  background:var(--surface);border:1px solid var(--border);border-radius:9px;
+  padding:10px 14px;display:flex;align-items:center;gap:10px;margin-bottom:6px;
+  transition:border-color .15s;
+}
+.file-item:hover{border-color:var(--border-strong)}
+.fi-icon{width:30px;height:30px;background:#e8f0fe;border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.fi-icon svg{width:14px;height:14px;stroke:#1a73e8;fill:none;stroke-width:2}
+.fi-name{font-size:13px;font-weight:500;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fi-size{font-size:12px;color:var(--text-muted);font-family:var(--mono);flex-shrink:0}
+.fi-status{font-size:12px;flex-shrink:0;font-weight:500;min-width:60px;text-align:right}
+.fi-remove{width:26px;height:26px;background:none;border:1px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background .15s,border-color .15s}
+.fi-remove:hover{background:var(--danger-bg);border-color:var(--danger)}
+.fi-remove svg{width:13px;height:13px;stroke:var(--text-muted);fill:none;stroke-width:2}
+.fi-remove:hover svg{stroke:var(--danger)}
+.s-wait{color:var(--text-muted)}
+.s-proc{color:var(--accent)}
+.s-ok{color:#16a34a}
+.s-err{color:var(--danger)}
+
+/* bottom bar */
+.bottom-bar{
+  display:none;margin-top:20px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:14px 18px;
+  display:none;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+}
+.bottom-bar.show{display:flex}
+.bottom-info{font-size:13px;color:var(--text-sec)}
+.bottom-info strong{color:var(--text);font-weight:600}
+
+.btn{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:500;padding:9px 18px;border-radius:var(--radius);border:none;cursor:pointer;transition:opacity .15s,transform .1s;white-space:nowrap}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--text);color:white}
+.btn-primary:hover:not(:disabled){opacity:.85}
+.btn-secondary{background:var(--surface);color:var(--text);border:1px solid var(--border-strong)}
+.btn-secondary:hover{background:var(--surface2)}
+.btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
+
+/* progress */
+.progress-area{display:none;margin-top:20px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.progress-bar-wrap{background:var(--surface2);border-radius:99px;height:5px;overflow:hidden;margin-bottom:8px}
+.progress-bar{height:100%;background:var(--accent);border-radius:99px;transition:width .25s;width:0%}
+.progress-label{font-size:13px;color:var(--text-sec)}
+
+/* results */
+.results{display:none;margin-top:32px}
+.results-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+.results-meta h3{font-size:16px;font-weight:600}
+.results-meta p{font-size:13px;color:var(--text-sec);margin-top:2px}
+.section-block{margin-bottom:28px}
+.section-label{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.section-label span{color:var(--text)}
+.image-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
+.img-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:box-shadow .15s}
+.img-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)}
+.img-wrap{aspect-ratio:4/3;background:var(--surface2);overflow:hidden;cursor:zoom-in}
+.img-wrap img{width:100%;height:100%;object-fit:contain;padding:6px}
+.img-info{padding:7px 10px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border)}
+.img-num{font-size:12px;font-weight:600;font-family:var(--mono);color:var(--text-sec)}
+.img-dl{width:24px;height:24px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;display:flex;align-items:center;justify-content:center;text-decoration:none;transition:background .15s}
+.img-dl:hover{background:var(--accent-bg);border-color:var(--accent-border)}
+.img-dl svg{width:12px;height:12px;stroke:var(--text-sec);fill:none;stroke-width:2}
+
+/* lightbox */
+.lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:200;align-items:center;justify-content:center;cursor:zoom-out}
+.lightbox.open{display:flex}
+.lightbox img{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px}
+.lb-close{position:absolute;top:18px;right:22px;color:white;font-size:28px;cursor:pointer;background:none;border:none;line-height:1}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--text);color:white;padding:10px 20px;border-radius:99px;font-size:14px;font-weight:500;transition:transform .3s;z-index:999;white-space:nowrap}
+.toast.show{transform:translateX(-50%) translateY(0)}
+
+@media(max-width:600px){main{padding:20px 14px}.image-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+  <h1>Doc Image Extractor</h1>
+  <p>— trích ảnh theo thứ tự</p>
+</header>
+
+<main>
+  <!-- drop zone -->
+  <div class="drop-area" id="dropzone">
+    <input type="file" id="fileInput" accept=".docx" multiple>
+    <div class="drop-icon">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+    </div>
+    <h2>Kéo thả hoặc chọn file</h2>
+    <p>Chọn nhiều file cùng lúc</p>
+    <div class="file-types"><span class="badge">.docx</span></div>
+  </div>
+
+  <!-- file list -->
+  <div class="file-list" id="fileList" style="display:none">
+    <div class="fl-header">
+      <span class="fl-title" id="flTitle">0 file</span>
+      <button class="fl-clear" onclick="clearAll()">Xóa tất cả</button>
+    </div>
+    <div id="fileItems"></div>
+  </div>
+
+  <!-- bottom action bar -->
+  <div class="bottom-bar" id="bottomBar">
+    <span class="bottom-info" id="bottomInfo"></span>
+    <button class="btn btn-primary" id="extractBtn" onclick="startExtract()">
+      <svg viewBox="0 0 24 24"><path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/></svg>
+      Trích ảnh
+    </button>
+  </div>
+
+  <!-- progress -->
+  <div class="progress-area" id="progressArea">
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
+    <p class="progress-label" id="progressLabel">Đang xử lý...</p>
+  </div>
+
+  <!-- results -->
+  <div class="results" id="results">
+    <div class="results-header">
+      <div class="results-meta">
+        <h3 id="resultsTitle"></h3>
+        <p id="resultsMeta"></p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-secondary" onclick="resetToUpload()">
+          <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 109-9 9 9 0 00-9 9M3 3v5h5"/></svg>
+          Làm lại
+        </button>
+        <button class="btn btn-primary" id="downloadAllBtn">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Tải tất cả (.zip)
+        </button>
+      </div>
+    </div>
+    <div id="sectionsContainer"></div>
+  </div>
+</main>
+
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="lb-close" onclick="closeLightbox()">×</button>
+  <img id="lightboxImg" src="" alt="">
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── state ──
+let fileMap = new Map(); // id -> File
+let idCounter = 0;
+let extractedGroups = {};
+
+// ── drop zone ──
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', e => { if (!dropzone.contains(e.relatedTarget)) dropzone.classList.remove('drag'); });
+dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('drag'); addFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', e => { addFiles(e.target.files); fileInput.value = ''; });
+
+function addFiles(files) {
+  const rejected = [];  
+  const duplicates = []; 
+  let added = 0;
+
+  Array.from(files).forEach(f => {
+    if (!f.name.match(/\.docx$/i)) {
+      rejected.push(f.name);
+      return;
+    }
+    let isDup = false;
+    for (const [, existing] of fileMap) {
+      if (existing.name === f.name && existing.size === f.size) {
+        isDup = true;
+        break;
+      }
+    }
+    if (isDup) {
+      duplicates.push(f.name);
+      return;
+    }
+    fileMap.set(++idCounter, f);
+    added++;
+  });
+
+  if (rejected.length) {
+    const names = rejected.join(', ');
+    showToast(`Bỏ qua ${rejected.length} file không phải .docx: ${names}`);
+  }
+
+  if (duplicates.length) {
+    const names = duplicates.join(', ');
+    showToast(`Đã bỏ qua ${duplicates.length} file trùng: ${names}`);
+  }
+
+  if (added === 0 && rejected.length === 0 && duplicates.length === 0) {
+    showToast('Không có file nào được thêm.');
+    return;
+  }
+
+  if (added > 0) renderFileList();
+}
+
+function removeFile(id) {
+  fileMap.delete(id);
+  renderFileList();
+}
+
+function clearAll() {
+  fileMap.clear();
+  renderFileList();
+}
+
+function renderFileList() {
+  const hasFiles = fileMap.size > 0;
+  const fileList = document.getElementById('fileList');
+  const bottomBar = document.getElementById('bottomBar');
+  const items = document.getElementById('fileItems');
+
+  // toggle drop zone style
+  dropzone.classList.toggle('has-files', hasFiles);
+
+  fileList.style.display = hasFiles ? 'block' : 'none';
+  bottomBar.classList.toggle('show', hasFiles);
+
+  document.getElementById('flTitle').textContent = `${fileMap.size} file được chọn`;
+  document.getElementById('bottomInfo').innerHTML = `<strong>${fileMap.size} file</strong> — sẵn sàng trích ảnh`;
+
+  items.innerHTML = '';
+  for (const [id, f] of fileMap) {
+    const size = f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : Math.round(f.size/1024)+'KB';
+    const div = document.createElement('div');
+    div.className = 'file-item';
+    div.id = `fi-${id}`;
+    div.innerHTML = `
+      <div class="fi-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div>
+      <span class="fi-name" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
+      <span class="fi-size">${size}</span>
+      <button class="fi-remove" onclick="removeFile(${id})" title="Bỏ file này">
+        <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>`;
+    items.appendChild(div);
+  }
+}
+
+// ── extract ──
+async function startExtract() {
+  if (!fileMap.size) return;
+  document.getElementById('extractBtn').disabled = true;
+  document.getElementById('bottomBar').classList.remove('show');
+  document.getElementById('progressArea').style.display = 'block';
+
+  extractedGroups = {};
+  const nameCount = {};
+  const entries = Array.from(fileMap.entries());
+
+  for (let i = 0; i < entries.length; i++) {
+    const [id, f] = entries[i];
+    setProgress(Math.round(i / entries.length * 90), `Đang xử lý: ${f.name}`);
+    setFileStatus(id, 'proc', 'đang đọc...');
+    try {
+      const imgs = await extractDocx(f);
+      let base = f.name.replace(/\.docx$/i, '').replace(/[\\/:*?"<>|]/g, '_').trim();
+      nameCount[base] = (nameCount[base] || 0) + 1;
+      let folderName;
+      if (nameCount[base] === 1) {
+        folderName = base;
+      } else {
+        // rename previous entry if it was the "clean" name
+        if (extractedGroups[base]) {
+          extractedGroups[`${base}-1`] = extractedGroups[base];
+          delete extractedGroups[base];
+        }
+        folderName = `${base}-${nameCount[base]}`;
+      }
+      extractedGroups[folderName] = imgs;
+      setFileStatus(id, 'ok', `${imgs.length} ảnh`);
+    } catch(err) {
+      setFileStatus(id, 'err', 'lỗi');
+      console.error(f.name, err);
+    }
+  }
+
+  setProgress(100, 'Hoàn tất!');
+  setTimeout(renderResults, 400);
+}
+
+async function extractDocx(file) {
+  const zip = await JSZip.loadAsync(file);
+  const xmlText = await zip.file('word/document.xml').async('string');
+  const relsText = await zip.file('word/_rels/document.xml.rels').async('string');
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, 'text/xml');
+  const relsDoc = parser.parseFromString(relsText, 'text/xml');
+
+  const rels = {};
+  relsDoc.querySelectorAll('Relationship').forEach(r => {
+    rels[r.getAttribute('Id')] = r.getAttribute('Target');
+  });
+
+  const ns = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+  const rNs = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const blips = doc.getElementsByTagNameNS(ns, 'blip');
+  const imgs = [];
+  const seen = new Set();
+
+  for (let i = 0; i < blips.length; i++) {
+    const rId = blips[i].getAttributeNS(rNs, 'embed');
+    if (!rId || !rels[rId] || seen.has(rId)) continue;
+    seen.add(rId);
+    const target = rels[rId];
+    const path = target.startsWith('/') ? target.slice(1) : `word/${target}`;
+    const imgFile = zip.file(path);
+    if (!imgFile) continue;
+    const blob = await imgFile.async('blob');
+    const ext = path.split('.').pop().toLowerCase().replace('jpeg','jpg');
+    imgs.push({ blob, ext });
+  }
+  return imgs;
+}
+
+// ── render results ──
+function renderResults() {
+  document.getElementById('progressArea').style.display = 'none';
+  const resultsEl = document.getElementById('results');
+  resultsEl.style.display = 'block';
+
+  const totalImgs = Object.values(extractedGroups).reduce((s,a) => s+a.length, 0);
+  const totalFolders = Object.keys(extractedGroups).length;
+  document.getElementById('resultsTitle').textContent = `${totalImgs} ảnh từ ${totalFolders} file`;
+  document.getElementById('resultsMeta').textContent = 'Ảnh đánh số theo thứ tự từ trên xuống dưới';
+
+  const container = document.getElementById('sectionsContainer');
+  container.innerHTML = '';
+
+  for (const [folder, imgs] of Object.entries(extractedGroups)) {
+    const block = document.createElement('div');
+    block.className = 'section-block';
+    block.innerHTML = `<div class="section-label"><span>${escHtml(folder)}</span> — ${imgs.length} ảnh</div><div class="image-grid"></div>`;
+    container.appendChild(block);
+    const grid = block.querySelector('.image-grid');
+
+    imgs.forEach((img, i) => {
+      const url = URL.createObjectURL(img.blob);
+      const num = String(i+1).padStart(3,'0');
+      const fname = `${folder}_${num}.${img.ext}`;
+      const card = document.createElement('div');
+      card.className = 'img-card';
+      card.innerHTML = `
+        <div class="img-wrap" onclick="openLightbox('${url}')"><img src="${url}" alt="${num}" loading="lazy"></div>
+        <div class="img-info">
+          <span class="img-num">${num}</span>
+          <a class="img-dl" href="${url}" download="${fname}" title="Tải ảnh này">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          </a>
+        </div>`;
+      grid.appendChild(card);
+    });
+  }
+
+  document.getElementById('downloadAllBtn').onclick = downloadAllZip;
+  resultsEl.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+async function downloadAllZip() {
+  showToast('Đang tạo zip...');
+  const zip = new JSZip();
+  for (const [folder, imgs] of Object.entries(extractedGroups)) {
+    const f = zip.folder(folder);
+    imgs.forEach((img, i) => f.file(`${String(i+1).padStart(3,'0')}.${img.ext}`, img.blob));
+  }
+  const blob = await zip.generateAsync({ type:'blob' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'images.zip'; a.click();
+  showToast('Đã tải xong!');
+}
+
+function resetToUpload() {
+  extractedGroups = {};
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('sectionsContainer').innerHTML = '';
+  // reset file statuses
+  for (const [id] of fileMap) setFileStatus(id, 'wait', 'chờ');
+  document.getElementById('extractBtn').disabled = false;
+  document.getElementById('bottomBar').classList.add('show');
+  document.getElementById('progressArea').style.display = 'none';
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+// ── helpers ──
+function setProgress(pct, msg) {
+  document.getElementById('progressBar').style.width = pct+'%';
+  document.getElementById('progressLabel').textContent = msg;
+}
+function setFileStatus(id, cls, msg) {
+  const el = document.getElementById(`fs-${id}`);
+  if (el) { el.className = `fi-status s-${cls}`; el.textContent = msg; }
+}
+function openLightbox(url) {
+  document.getElementById('lightboxImg').src = url;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeLightbox(); });
+
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>
